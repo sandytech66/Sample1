@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Document Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <h1>Document Manager</h1>
+      <p>Add a person's name, age and attach a document (HTML, TXT, Excel or Word).</p>
+    </header>
+
+    <main class="layout">
+      <section class="card">
+        <h2>Add Record</h2>
+        <form id="recordForm" novalidate>
+          <div class="field">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" placeholder="e.g. John Doe" required maxlength="100" />
+            <span class="error" id="nameError"></span>
+          </div>
+
+          <div class="field">
+            <label for="age">Age</label>
+            <input type="number" id="age" name="age" placeholder="e.g. 28" min="0" max="150" required />
+            <span class="error" id="ageError"></span>
+          </div>
+
+          <div class="field">
+            <label for="document">Document</label>
+            <input
+              type="file"
+              id="document"
+              name="document"
+              accept=".html,.htm,.txt,.xls,.xlsx,.doc,.docx"
+              required
+            />
+            <span class="hint">Accepted: .html, .txt, .xls, .xlsx, .doc, .docx (max 10 MB)</span>
+            <span class="error" id="documentError"></span>
+          </div>
+
+          <button type="submit" class="btn-primary">Save Record</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <h2>Saved Records</h2>
+          <span class="count" id="recordCount">0</span>
+        </div>
+        <div id="recordsList" class="records-list">
+          <p class="empty-state" id="emptyState">No records yet. Add one using the form.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
