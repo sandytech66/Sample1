@@ -38,6 +38,7 @@ exports.handler = async (event) => {
         docName: row.doc_name,
         docSize: row.doc_size,
         dataUrl: row.data_url,
+        storagePath: row.storage_path,
         createdAt: row.created_at,
       }));
       return { statusCode: 200, headers, body: JSON.stringify(records) };
@@ -45,7 +46,7 @@ exports.handler = async (event) => {
 
     if (event.httpMethod === 'POST') {
       const body = JSON.parse(event.body || '{}');
-      const { name, age, docName, docSize, dataUrl } = body;
+      const { name, age, docName, docSize, dataUrl, storagePath } = body;
 
       if (!name || age === undefined || age === null || !docName || !dataUrl) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing required fields' }) };
@@ -59,6 +60,7 @@ exports.handler = async (event) => {
           doc_name: docName,
           doc_size: docSize,
           data_url: dataUrl,
+          storage_path: storagePath || null,
         })
         .select()
         .single();
@@ -74,6 +76,7 @@ exports.handler = async (event) => {
           docName: data.doc_name,
           docSize: data.doc_size,
           dataUrl: data.data_url,
+          storagePath: data.storage_path,
           createdAt: data.created_at,
         }),
       };
@@ -84,8 +87,20 @@ exports.handler = async (event) => {
       if (!id) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing id' }) };
       }
+
+      const { data: existing } = await supabase
+        .from('documents')
+        .select('storage_path')
+        .eq('id', id)
+        .single();
+
       const { error } = await supabase.from('documents').delete().eq('id', id);
       if (error) throw error;
+
+      if (existing && existing.storage_path) {
+        await supabase.storage.from('documents').remove([existing.storage_path]);
+      }
+
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 

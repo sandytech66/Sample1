@@ -1,7 +1,20 @@
 (() => {
   const API_URL = '/.netlify/functions/records';
-  const MAX_FILE_SIZE = 5 * 1024; // 5 KB
+  const CONFIG_URL = '/.netlify/functions/config';
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
   const ALLOWED_EXTENSIONS = ['.html', '.htm', '.txt', '.xls', '.xlsx', '.doc', '.docx'];
+  const STORAGE_BUCKET = 'documents';
+
+  let supabaseClient = null;
+
+  const getSupabaseClient = async () => {
+    if (supabaseClient) return supabaseClient;
+    const res = await fetch(CONFIG_URL);
+    if (!res.ok) throw new Error('Could not load storage configuration.');
+    const { url, anonKey } = await res.json();
+    supabaseClient = window.supabase.createClient(url, anonKey);
+    return supabaseClient;
+  };
 
   const form = document.getElementById('recordForm');
   const nameInput = document.getElementById('name');
@@ -93,8 +106,25 @@
       const downloadLink = document.createElement('a');
       downloadLink.className = 'icon-btn download';
       downloadLink.textContent = 'Download';
-      downloadLink.href = record.dataUrl;
-      downloadLink.download = record.docName;
+      downloadLink.href = '#';
+      downloadLink.addEventListener('click', async (event) => {
+        event.preventDefault();
+        try {
+          const res = await fetch(record.dataUrl);
+          if (!res.ok) throw new Error('Download failed');
+          const blob = await res.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const tempLink = document.createElement('a');
+          tempLink.href = objectUrl;
+          tempLink.download = record.docName;
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          tempLink.remove();
+          URL.revokeObjectURL(objectUrl);
+        } catch {
+          documentError.textContent = 'Could not download the file. Please try again.';
+        }
+      });
 
       const deleteBtn = document.createElement('button');
       deleteBtn.type = 'button';
@@ -130,13 +160,17 @@
     }
   };
 
-  const readFileAsDataUrl = (file) =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
+  const uploadFile = async (file) => {
+    const client = await getSupabaseClient();
+    const path = `${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+    const { error } = await client.storage.from(STORAGE_BUCKET).upload(path, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
     });
+    if (error) throw new Error(error.message || 'Failed to upload file');
+    const { data } = client.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+    return { path, publicUrl: data.publicUrl };
+  };
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -166,7 +200,7 @@
         documentError.textContent = `Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`;
         hasError = true;
       } else if (file.size > MAX_FILE_SIZE) {
-        documentError.textContent = 'File is too large. Maximum size is 5 KB.';
+        documentError.textContent = 'File is too large. Maximum size is 5 MB.';
         hasError = true;
       }
     }
@@ -175,13 +209,14 @@
 
     submitBtn.disabled = true;
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const { path, publicUrl } = await uploadFile(file);
       await createRecord({
         name,
         age: Number(age),
         docName: file.name,
         docSize: file.size,
-        dataUrl,
+        dataUrl: publicUrl,
+        storagePath: path,
       });
       form.reset();
       await refresh();
