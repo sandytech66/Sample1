@@ -1,0 +1,5 @@
+/node_modules
+/dist
+/.env
+/.env.*
+document-manager-app/node_modules
