@@ -1,6 +1,6 @@
 (() => {
-  const STORAGE_KEY = 'documentManagerRecords';
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+  const API_URL = '/.netlify/functions/records';
+  const MAX_FILE_SIZE = 5 * 1024; // 5 KB
   const ALLOWED_EXTENSIONS = ['.html', '.htm', '.txt', '.xls', '.xlsx', '.doc', '.docx'];
 
   const form = document.getElementById('recordForm');
@@ -13,41 +13,11 @@
   const recordsList = document.getElementById('recordsList');
   const emptyState = document.getElementById('emptyState');
   const recordCount = document.getElementById('recordCount');
+  const submitBtn = form.querySelector('button[type="submit"]');
 
   const getExtension = (fileName) => {
     const dotIndex = fileName.lastIndexOf('.');
     return dotIndex === -1 ? '' : fileName.slice(dotIndex).toLowerCase();
-  };
-
-  const loadRecords = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const saveRecords = (records) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-      return true;
-    } catch (err) {
-      if (err && err.name === 'QuotaExceededError') {
-        documentError.textContent = 'Storage is full. Delete some records or attach a smaller file.';
-      } else {
-        documentError.textContent = 'Could not save the record. Please try again.';
-      }
-      return false;
-    }
-  };
-
-  const makeId = () => {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-    return `rec-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   };
 
   const formatSize = (bytes) => {
@@ -62,8 +32,31 @@
     documentError.textContent = '';
   };
 
-  const renderRecords = () => {
-    const records = loadRecords();
+  const fetchRecords = async () => {
+    const res = await fetch(API_URL);
+    if (!res.ok) throw new Error('Failed to load records');
+    return res.json();
+  };
+
+  const createRecord = async (record) => {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || 'Failed to save record');
+    }
+    return res.json();
+  };
+
+  const deleteRecord = async (id) => {
+    const res = await fetch(`${API_URL}?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete record');
+  };
+
+  const renderRecords = (records) => {
     recordCount.textContent = String(records.length);
     recordsList.innerHTML = '';
 
@@ -72,54 +65,69 @@
       return;
     }
 
-    records
-      .slice()
-      .reverse()
-      .forEach((record) => {
-        const item = document.createElement('div');
-        item.className = 'record';
+    records.forEach((record) => {
+      const item = document.createElement('div');
+      item.className = 'record';
 
-        const info = document.createElement('div');
-        info.className = 'record-info';
+      const info = document.createElement('div');
+      info.className = 'record-info';
 
-        const name = document.createElement('div');
-        name.className = 'record-name';
-        name.textContent = record.name;
+      const name = document.createElement('div');
+      name.className = 'record-name';
+      name.textContent = record.name;
 
-        const meta = document.createElement('div');
-        meta.className = 'record-meta';
-        meta.textContent = `Age: ${record.age}`;
+      const meta = document.createElement('div');
+      meta.className = 'record-meta';
+      meta.textContent = `Age: ${record.age}`;
 
-        const doc = document.createElement('div');
-        doc.className = 'record-doc';
-        doc.title = record.docName;
-        doc.textContent = `${record.docName} (${formatSize(record.docSize)})`;
+      const doc = document.createElement('div');
+      doc.className = 'record-doc';
+      doc.title = record.docName;
+      doc.textContent = `${record.docName} (${formatSize(record.docSize)})`;
 
-        info.append(name, meta, doc);
+      info.append(name, meta, doc);
 
-        const actions = document.createElement('div');
-        actions.className = 'record-actions';
+      const actions = document.createElement('div');
+      actions.className = 'record-actions';
 
-        const downloadLink = document.createElement('a');
-        downloadLink.className = 'icon-btn download';
-        downloadLink.textContent = 'Download';
-        downloadLink.href = record.dataUrl;
-        downloadLink.download = record.docName;
+      const downloadLink = document.createElement('a');
+      downloadLink.className = 'icon-btn download';
+      downloadLink.textContent = 'Download';
+      downloadLink.href = record.dataUrl;
+      downloadLink.download = record.docName;
 
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'icon-btn delete';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.addEventListener('click', () => {
-          const updated = loadRecords().filter((entry) => entry.id !== record.id);
-          saveRecords(updated);
-          renderRecords();
-        });
-
-        actions.append(downloadLink, deleteBtn);
-        item.append(info, actions);
-        recordsList.appendChild(item);
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'icon-btn delete';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', async () => {
+        deleteBtn.disabled = true;
+        try {
+          await deleteRecord(record.id);
+          await refresh();
+        } catch {
+          documentError.textContent = 'Could not delete the record. Please try again.';
+          deleteBtn.disabled = false;
+        }
       });
+
+      actions.append(downloadLink, deleteBtn);
+      item.append(info, actions);
+      recordsList.appendChild(item);
+    });
+  };
+
+  const refresh = async () => {
+    try {
+      const records = await fetchRecords();
+      renderRecords(records);
+    } catch {
+      recordsList.innerHTML = '';
+      const errorState = document.createElement('p');
+      errorState.className = 'empty-state';
+      errorState.textContent = 'Could not load records. Please refresh the page.';
+      recordsList.appendChild(errorState);
+    }
   };
 
   const readFileAsDataUrl = (file) =>
@@ -158,34 +166,31 @@
         documentError.textContent = `Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`;
         hasError = true;
       } else if (file.size > MAX_FILE_SIZE) {
-        documentError.textContent = 'File is too large. Maximum size is 5 MB.';
+        documentError.textContent = 'File is too large. Maximum size is 5 KB.';
         hasError = true;
       }
     }
 
     if (hasError) return;
 
+    submitBtn.disabled = true;
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const records = loadRecords();
-      records.push({
-        id: makeId(),
+      await createRecord({
         name,
         age: Number(age),
         docName: file.name,
         docSize: file.size,
         dataUrl,
-        createdAt: new Date().toISOString(),
       });
-      const saved = saveRecords(records);
-      if (saved) {
-        form.reset();
-        renderRecords();
-      }
-    } catch {
-      documentError.textContent = 'Could not read the file. Please try again.';
+      form.reset();
+      await refresh();
+    } catch (err) {
+      documentError.textContent = err.message || 'Could not save the record. Please try again.';
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 
-  renderRecords();
+  refresh();
 })();
